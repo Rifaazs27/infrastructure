@@ -1,0 +1,9 @@
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+.vscode/

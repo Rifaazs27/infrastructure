@@ -1,0 +1,65 @@
+# 1️⃣ Frontend → Backend autorisé
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-to-backend
+  namespace: cloudshop
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 5000
+
+---
+
+# 2️⃣ Backend → DB autorisé
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-to-db
+  namespace: cloudshop
+spec:
+  podSelector:
+    matchLabels:
+      app: db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+
+# 3️⃣ Interdiction DB accessible depuis frontend
+# (implicitement géré par la NetworkPolicy précédente, car seules les requêtes venant de backend sont autorisées)
+# Pas besoin de créer une règle supplémentaire
+
+---
+
+# 4️⃣ Interdiction namespace externe (default-deny)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-cloudshop
+  namespace: cloudshop
+spec:
+  podSelector: {}   # cible tous les pods du namespace cloudshop
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []       # aucun trafic entrant autorisé par défaut
+  egress: []        # aucun trafic sortant autorisé par défaut

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: cloudshop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      serviceAccountName: backend-sa
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: backend
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: backend
+        image: python:3.11-alpine
+        command: ["sh", "-c"]
+        args: ["pip install --no-cache-dir flask && python /app/app.py"]
+        ports:
+        - containerPort: 5000
+        volumeMounts:
+        - name: backend-code
+          mountPath: /app
+      volumes:
+      - name: backend-code
+        configMap:
+          name: backend-code
