@@ -13,6 +13,15 @@ spec:
       labels:
         app: db
     spec:
+      affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: node-role
+          operator: In
+          values:
+          - db
       tolerations:
       - key: "db-node"
         operator: "Equal"

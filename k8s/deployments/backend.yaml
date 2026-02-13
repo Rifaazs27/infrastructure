@@ -5,38 +5,63 @@ metadata:
   namespace: cloudshop
 spec:
   replicas: 2
-  selector:
-    matchLabels:
-      app: backend
+
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 1
+      maxUnavailable: 0
       maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: backend
+
   template:
     metadata:
       labels:
         app: backend
+
     spec:
       serviceAccountName: backend-sa
+
+      # 🔹 Anti-affinity → backend pods sur nodes différents
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app: backend
-            topologyKey: "kubernetes.io/hostname"
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: backend
+              topologyKey: kubernetes.io/hostname
+
       containers:
       - name: backend
         image: python:3.11-alpine
+
         command: ["sh", "-c"]
-        args: ["pip install --no-cache-dir flask && python /app/app.py"]
+        args:
+          - |
+            pip install --no-cache-dir flask psycopg2-binary && \
+            python /app/app.py
+
         ports:
         - containerPort: 5000
+
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+
         volumeMounts:
         - name: backend-code
           mountPath: /app
+
       volumes:
       - name: backend-code
         configMap:
           name: backend-code
+
