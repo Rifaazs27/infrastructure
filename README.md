@@ -1,134 +1,133 @@
-\# CloudShop Kubernetes - Checklist de tests
+CloudShop Kubernetes - Checklist de déploiement
 
-Ce guide permet de vérifier que toutes les exigences techniques du projet \*\*CloudShop\*\* sont respectées.
+Ce guide permet de vérifier que toutes les exigences techniques du projet CloudShop sont respectées.
 
----
+Namespace
 
-## 1. Namespace
+Appliquer le namespace : kubectl apply -f namespace.yaml
 
-\*\*Objectif\*\* : Vérifier que le namespace dédié existe et que rien n’est dans \`default\`.
+Vérifier que le namespace existe : kubectl get ns
 
-\`\`\`bash
-kubectl get ns
-kubectl get all -n default
-kubectl get all -n cloudshop
+Deployments
 
-✅ Vérifier que `cloudshop` existe et que `default` ne contient aucun objet du projet.
+Appliquer les Deployments : kubectl apply -f deployments/
 
-## 2\. Deployments
+Vérifier les Deployments : kubectl get deployments -n cloudshop
 
-**Objectif** : Vérifier les réplicas et le RollingUpdate.
+Vérifier les pods : kubectl get pods -n cloudshop
 
-kubectl get deployments -n cloudshop
-kubectl describe deployment frontend -n cloudshop
-kubectl describe deployment backend -n cloudshop
+Frontend et Backend doivent avoir 2 replicas
 
-**Test RollingUpdate / Zero downtime** :
+RollingUpdate activé
+
+Backend pods : anti-affinity pour éviter qu’ils tournent sur le même node
+
+ServiceAccount appliqué à chaque pod
+
+Test RollingUpdate réussi :
 
 kubectl set image deployment/backend backend=python:3.11-alpine -n cloudshop
+
 kubectl rollout status deployment/backend -n cloudshop
-kubectl get pods -n cloudshop -w
 
-✅ Vérifier que les pods backend se mettent à jour **sans interruption du service**.
+Services
 
-## 3\. Services
+Appliquer les Services : kubectl apply -f services/
 
-**Objectif** : Vérifier les types de service et l’exposition via Ingress.
+Vérifier les Services : kubectl get svc -n cloudshop
 
-kubectl get svc -n cloudshop
+Backend et DB exposés en ClusterIP
 
--   Backend et DB : `ClusterIP`
--   Frontend exposé uniquement via Ingress
+Frontend exposé uniquement via Ingress
 
-## 4\. Ingress
+Ingress
 
-**Objectif** : Host-based & Path-based routing, TLS activé.
+Appliquer l’Ingress : kubectl apply -f ingress/cloudshop-ingress.yaml
 
-kubectl get ingress -n cloudshop
+Vérifier l’Ingress : kubectl get ingress -n cloudshop
+
+Host-based routing : cloudshop.local
+
+Path-based routing : / → frontend, /api → backend
+
+TLS activé (self-signed autorisé)
+
+Tester l’Ingress fonctionnel :
+
 curl -k https://cloudshop.local/
+
 curl -k https://cloudshop.local/api
 
-✅ Vérifier que le frontend et le backend sont accessibles via les chemins `/` et `/api`.
+Base de données & Storage
 
-## 5\. Base de données & Volumes
+Appliquer le PVC : kubectl apply -f storage/postgres-pvc.yaml
 
-**Objectif** : Vérifier persistance et PVC.
+Vérifier le PVC : kubectl get pvc -n cloudshop
 
-kubectl get pvc -n cloudshop
-kubectl describe pod -l app=db -n cloudshop
+DB utilise PVC, pas de hostPath
 
-**Tester la persistance des données** :
+DB pod tolère le taint db-node et est sur le node tainté
 
-kubectl run -i --tty --rm pg-client \\
-  --image=postgres:15 \\
-  --namespace=cloudshop \\
-  --env="PGPASSWORD=password" \\
-  -- bash
+Vérification de la persistance des données :
 
-# Dans le client psql
-psql -h postgres -U admin -d cloudshop
-CREATE TABLE test\_persistence (id SERIAL PRIMARY KEY, name TEXT);
-INSERT INTO test\_persistence (name) VALUES ('Premier test');
-SELECT \* FROM test\_persistence;
-# Supprimer le pod postgres et vérifier que les données persistent
+Lancer un pod client :
+kubectl run -i --tty --rm pg-client --image=postgres:15 --namespace=cloudshop --env="PGPASSWORD=password" -- bash
 
-## 6\. Taints & Affinity
+Dans psql :
 
-**Objectif** : DB sur node dédié, backend pods sur nodes différents.
+CREATE TABLE test_persistence (id SERIAL PRIMARY KEY, name TEXT);
 
-kubectl get nodes -o wide
-kubectl describe node <db-node> | grep -i taint
-kubectl get pods -o wide -n cloudshop
+INSERT INTO test_persistence (name) VALUES ('Premier test');
 
-✅ Vérifier :
+SELECT * FROM test_persistence;
 
--   Node DB a le taint `db-node=true:NoSchedule`
--   DB pod tourne sur ce node
--   Backend pods sur nodes différents
--   Frontend et DB ne cohabitent pas
+Supprimer le pod DB et vérifier que les données persistent
 
-## 7\. RBAC & ServiceAccounts
+Taints & Affinity
 
-**Objectif** : vérifier permissions.
+Node DB tainté : kubectl taint nodes <db-node> db-node=true:NoSchedule
 
-kubectl get sa -n cloudshop
-kubectl auth can-i get pods --as=testuser
-kubectl describe role backend-role -n cloudshop
-kubectl describe rolebinding backend-rolebinding -n cloudshop
+Backend pods : anti-affinity pour éviter le même node
 
-✅ Vérifier :
+Frontend et DB : ne cohabitent pas sur le même node
 
--   Backend peut lire ConfigMaps et Secrets
--   Frontend n’a aucun droit API
+Vérification des pods : kubectl get pods -o wide -n cloudshop
 
-## 8\. NetworkPolicy
+Vérification des taints : kubectl describe node <db-node> | grep Taints -A2
 
-**Objectif** : sécuriser la communication entre pods.
+RBAC & ServiceAccounts
 
-kubectl describe networkpolicy cloudshop-networkpolicy -n cloudshop
-kubectl exec -it <frontend-pod> -- curl http://backend:5000/api  # OK
-kubectl exec -it <frontend-pod> -- psql -h postgres ...          # Bloqué
-kubectl exec -it <other-namespace-pod> -- curl http://backend:5000/api  # Bloqué
+frontend-sa : aucun droit API
 
-✅ Vérifier :
+backend-sa : lecture de ConfigMaps et Secrets
 
--   Frontend → Backend autorisé
--   Backend → DB autorisé
--   Frontend → DB interdit
--   Pods externes → Backend/DB interdits
+Test des droits : kubectl auth can-i get pods --as=testuser
 
-## 9\. Vérification finale
+NetworkPolicy
 
-kubectl get all -n cloudshop
-kubectl logs <pod-name> -n cloudshop
-kubectl describe pod <pod-name> -n cloudshop
+Frontend → Backend autorisé
 
--   Tous les pods sont en **Running / Ready**
--   RollingUpdate fonctionne sans downtime
--   DB persiste après suppression du pod
--   Taints & Affinity respectés
--   NetworkPolicy fonctionne
+Backend → DB autorisé
 
+Interdiction d’accès à la DB depuis frontend et namespace externe
+
+Test NetworkPolicy :
+
+kubectl exec -it frontend-<pod> -- curl http://backend:5000/api → OK
+
+kubectl exec -it frontend-<pod> -- psql -h postgres ... → Bloqué
+
+Vérification finale
+
+Application accessible via Ingress
+
+RollingUpdate fonctionne (zero downtime)
+
+DB persiste après suppression du pod
+
+Taints et Affinity respectés
+
+NetworkPolicy bloque les accès non autorisés
 
 # ✅ Checklist CloudShop Kubernetes Deployment
 
